@@ -3,11 +3,11 @@ FROM alpine:3.20
 ARG WARP_VERSION="v2.1.5"
 ARG TARGETARCH
 
-# 安装 sing-box, curl, 和 warp-go
+# 安装 sing-box, curl, warp-go, sed
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories && \
     set -ex && \
     apk update && \
-    apk add --no-cache sing-box curl
+    apk add --no-cache sing-box curl sed
 
 RUN set -ex && \
     curl -fsSL -o /tmp/warp.tar.gz \
@@ -25,7 +25,7 @@ RUN set -ex && \
 
 # 复制配置文件和脚本
 WORKDIR /app
-COPY config.json .
+COPY config.json.template .
 COPY start.sh .
 COPY update_ip.sh .
 RUN chmod +x start.sh update_ip.sh
