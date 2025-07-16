@@ -27,10 +27,10 @@ RUN mkdir -p /opt/app/ui && \
 
 # 4. 拷贝应用核心文件
 WORKDIR /opt/app
-# 不再需要安装 warp 工具，因为 sing-box 的 wireguard 出站已经包含了 WARP 功能
-# 如果您仍需要 warp-cli 工具进行 IP 优选，请取消下面的注释
-# COPY warp-arm64 /usr/local/bin/warp
-# RUN chmod +x /usr/local/bin/warp
+不再需要安装 warp 工具，因为 sing-box 的 wireguard 出站已经包含了 WARP 功能
+如果您仍需要 warp-cli 工具进行 IP 优选，请取消下面的注释
+ COPY warp-arm64 /usr/local/bin/warp
+ RUN chmod +x /usr/local/bin/warp
 COPY entry.sh .
 COPY config.json.template .
 
