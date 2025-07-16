@@ -32,8 +32,7 @@ run_ip_selection() {
     if [ -f "result.csv" ]; then
         green "✅ 扫描完成，正在处理结果..."
         
-        # --- THE FIX PART 1: Robust Data Cleaning ---
-        # Added 'sed' to remove spaces AND carriage returns (\r)
+        # Clean the data at the source to remove whitespace and carriage returns
         awk -F, '($3+0) > 0 {print $0}' result.csv | \
         sort -t, -k3,3n | \
         head -n "$BEST_IP_COUNT" | \
@@ -68,10 +67,10 @@ update_singbox_config() {
 
     green "✅ 已选择新的 Endpoint: ${new_ip}:${new_port}"
 
-    # --- THE FIX PART 2: Robust Error Handling ---
-    # Catch errors from jq instead of letting the script crash
-    if ! jq --arg ip "$new_ip" --argjson port "$new_port" \
-    '( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server ) |= $ip | ( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server_port ) |= $port' \
+    # --- THE FINAL FIX: Let jq handle the conversion ---
+    # We now pass the port as a string with --arg and use jq's 'tonumber' filter.
+    if ! jq --arg ip "$new_ip" --arg port "$new_port" \
+    '( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server ) |= $ip | ( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server_port ) |= ($port | tonumber)' \
     "$CONFIG_TEMPLATE" > "$ACTIVE_CONFIG"; then
         red "❌ JQ 更新配置文件失败！请检查模板文件或脚本。服务将退出。"
         exit 1
