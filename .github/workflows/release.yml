@@ -1,39 +1,40 @@
 # .github/workflows/release.yml
 
-name: Build, Push to GHCR & Upload to Release
+name: 'Build, Push to GHCR & Upload to Release' # <--  MODIFIED: Added quotes to handle the special '&' character.
 
+# Trigger condition: Fires when a new Release is published on the GitHub repository's "Releases" page.
 on:
   release:
     types: [published]
 
+# Set permissions for the workflow.
 permissions:
-  contents: write
-  packages: write
+  contents: write      # Allows uploading files to the Release.
+  packages: write      # Allows pushing to the GitHub Container Registry (GHCR).
 
+# Environment variables for easy management.
 env:
-  # 定义镜像的基础名称
+  # Defines the base name for the image, automatically using "username/repository_name".
   IMAGE_BASENAME: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: 🧾 检出仓库代码
+      - name: 🧾 Checkout repository code
         uses: actions/checkout@v4
 
-      - name: 🔧 设置 Docker Buildx
+      - name: 🔧 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🔑 登录到 GitHub Container Registry
+      - name: 🔑 Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # ==================== ↓↓↓ 这里是修改的部分 ↓↓↓ ====================
-      # 不再需要准备版本号，逻辑大大简化
-      - name: 📦 准备镜像标签和文件名
+      
+      - name: 📦 Prepare image tags and filename
         id: prep
         run: |
           TAR_NAME="${{ github.event.repository.name }}-${{ github.ref_name }}.tar"
@@ -41,8 +42,7 @@ jobs:
           echo "TAR_NAME=${TAR_NAME}" >> $GITHUB_ENV
           echo "IMAGE_TAGS=${IMAGE_TAGS}" >> $GITHUB_ENV
       
-      # 构建时不再需要 build-args
-      - name: 🛠️ 构建、推送并打包镜像
+      - name: 🛠️ Build, push, and package the image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -51,9 +51,8 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_TAGS }}
           outputs: type=docker,dest=${{ env.TAR_NAME }}
-      # ==================== ↑↑↑ 这里是修改的部分 ↑↑↑ ====================
 
-      - name: ⬆️ 上传打包文件到 Release
+      - name: ⬆️ Upload packaged file to Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.TAR_NAME }}
