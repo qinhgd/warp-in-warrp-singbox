@@ -32,13 +32,24 @@ run_ip_selection() {
     
     if [ -f "result.csv" ]; then
         green "✅ 扫描完成，正在处理结果..."
-        # 筛选延迟低于 50ms 且非超时的IP，取前 N 个
-        awk -F, '($3+0) > 0 && ($3+0) < 50 {print $1":"$2}' result.csv | sed 's/[[:space:]]//g' | head -n "$BEST_IP_COUNT" > "$BEST_IP_FILE"
         
+        # ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
+        # 新逻辑：
+        # 1. 过滤掉延迟为0或超时的IP (`($3+0) > 0`)
+        # 2. 按第3列(延迟)进行数字升序排序 (`sort -t, -k3,3n`)
+        # 3. 取出排序后最靠前的 N 个IP (`head -n "$BEST_IP_COUNT"`)
+        # 4. 格式化为 IP:Port
+        awk -F, '($3+0) > 0 {print $0}' result.csv | \
+        sort -t, -k3,3n | \
+        head -n "$BEST_IP_COUNT" | \
+        awk -F, '{print $1":"$2}' | \
+        sed 's/[[:space:]]//g' > "$BEST_IP_FILE"
+        # ==================== ↑↑↑ 这里是核心修改 ↑↑↑ ====================
+
         if [ -s "$BEST_IP_FILE" ]; then
-            green "✅ 已生成包含 $(wc -l < "$BEST_IP_FILE") 个优质IP的列表。"
+            green "✅ 已从有效IP中筛选出延迟最低的 $(wc -l < "$BEST_IP_FILE") 个IP。"
         else
-            red "⚠️ 未能从扫描结果中筛选出合适的IP。"
+            red "⚠️ 未能从扫描结果中筛选出任何有效的IP。"
         fi
         rm -f result.csv
     else
@@ -73,7 +84,7 @@ update_singbox_config() {
 }
 
 # ==============================================================================
-# 主执行逻辑
+# 主执行逻辑 (这部分不变)
 # ==============================================================================
 cd "$APP_DIR" || exit 1
 
@@ -88,7 +99,6 @@ update_singbox_config
         sleep "$OPTIMIZE_INTERVAL"
         yellow "🔄 [定时任务] 开始周期性 IP 优选..."
         run_ip_selection
-        # 如果找到了新的IP, 就发出重载信号
         if [ -s "$BEST_IP_FILE" ]; then
             touch "$RELOAD_FLAG_FILE"
             yellow "🔄 [定时任务] IP 列表已更新，已发送热重载信号。"
@@ -101,13 +111,11 @@ update_singbox_config
 # --- 主服务循环: 运行并监控 sing-box ---
 green "🚀 启动并监控 sing-box 服务..."
 while true; do
-    # 在后台启动 sing-box
     /usr/local/bin/sing-box run -c "$ACTIVE_CONFIG" &
     SINGBOX_PID=$!
     
     green "✅ sing-box 服务已启动，进程 PID 为 ${SINGBOX_PID}。"
 
-    # 监控 sing-box 进程并检查重载信号
     while kill -0 "$SINGBOX_PID" >/dev/null 2>&1; do
         if [ -f "$RELOAD_FLAG_FILE" ]; then
             yellow "🔔 接收到热重载信号！"
@@ -116,7 +124,6 @@ while true; do
             
             yellow "正在平滑重启 sing-box (PID: ${SINGBOX_PID}) 以应用新配置..."
             kill "$SINGBOX_PID"
-            # 跳出内层循环，让外层循环来重启进程
             break 
         fi
         sleep 15
