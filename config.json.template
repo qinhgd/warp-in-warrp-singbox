@@ -1,0 +1,80 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "experimental": {
+    "cache_file": { "enabled": true },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9999",
+      "external_ui": "ui",
+      "external_ui_download_url": "https://proxydown.0031400.xyz?url=https://github.com/MetaCubeX/Yacd-meta/archive/gh-pages.zip"
+    }
+  },
+  "dns": {
+    "fakeip": { "enabled": true, "inet4_range": "198.18.0.0/15" },
+    "servers": [
+      { "tag": "dns-local", "address": "local", "detour": "direct" },
+      { "tag": "dns-remote", "address": "tls://1.1.1.1", "detour": "direct" }
+    ],
+    "rules": [
+      { "rule_set": ["geosite-cn"], "server": "dns-local" },
+      { "inbound": ["tun-in"], "server": "dns-remote" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "tun", "tag": "tun-in", "interface_name": "sbox-tun",
+      "inet4_address": "172.18.0.1/28", "auto_route": true, "strict_route": true, "stack": "system", "sniff": true
+    },
+    {
+      "type": "mixed", "tag": "mixed-in", "listen": "0.0.0.0", "listen_port": 1080, "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "wireguard",
+      "tag": "WARP-MAIN",
+      "server": "engage.cloudflareclient.com",
+      "server_port": 2408,
+      "private_key": "eCB+eRXYgEr/CShtqf9DgECLARr9J0XhDaUVoYW+CGk=",
+      "peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+      "reserved": "VFBc",
+      "local_address": [
+        "172.16.0.2/32",
+        "2606:4700:110:83bd:4f70:e3c1:d573:2f0a/128"
+      ],
+      "mtu": 1280,
+      "detour": "WARP-OPTIMIZED" 
+    },
+    {
+      "type": "wireguard",
+      "tag": "WARP-OPTIMIZED",
+      "server": "162.159.195.1",
+      "server_port": 2408,
+      "private_key": "IFKo4axy2uK5rJ7H57Sb7ckjOm9XlN1E+yDo3Ph5XFA=",
+      "peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+      "reserved": "pYfy",
+      "local_address": [
+        "172.16.0.2/32",
+        "2606:4700:110:83bb:8c54:ee95:5f83:e7d3/128"
+      ],
+      "mtu": 1280
+    },
+    { "type": "direct", "tag": "direct" },
+    { "type": "block", "tag": "block" }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "WARP-MAIN",
+    "rules": [
+      { "protocol": ["dns"], "outbound": "dns-remote" },
+      { "ip_is_private": true, "outbound": "direct" },
+      { "rule_set": ["geoip-cn", "geosite-cn"], "outbound": "direct" }
+    ],
+    "rule_set": [
+      { "tag": "geosite-cn", "type": "local", "format": "binary", "path": "/etc/sing-box/rules/geosite-cn.srs" },
+      { "tag": "geoip-cn", "type": "local", "format": "binary", "path": "/etc/sing-box/rules/geoip-cn.srs" }
+    ]
+  }
+}
