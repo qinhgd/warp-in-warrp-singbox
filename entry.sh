@@ -2,14 +2,14 @@
 set -e
 
 # ==============================================================================
-# 脚本配置 (来自环境变量)
+# Script Configuration (from Environment Variables)
 # ==============================================================================
-# --- IP 优选配置 ---
-OPTIMIZE_INTERVAL="${OPTIMIZE_INTERVAL:-21600}" # 6 小时
+# --- IP Selection Config ---
+OPTIMIZE_INTERVAL="${OPTIMIZE_INTERVAL:-21600}" # 6 hours
 WARP_CONNECT_TIMEOUT="${WARP_CONNECT_TIMEOUT:-4}"
 BEST_IP_COUNT="${BEST_IP_COUNT:-20}"
 
-# --- 文件路径 ---
+# --- File Paths ---
 APP_DIR="/opt/app"
 BEST_IP_FILE="${APP_DIR}/best_ips.txt"
 CONFIG_TEMPLATE="${APP_DIR}/config.json.template"
@@ -17,14 +17,14 @@ ACTIVE_CONFIG="/etc/sing-box/config.json"
 RELOAD_FLAG_FILE="/tmp/reload.flag"
 
 # ==============================================================================
-# 工具函数
+# Utility Functions
 # ==============================================================================
 red() { echo -e "\033[31m\033[01m$1\033[0m"; }
 green() { echo -e "\033[32m\033[01m$1\033[0m"; }
 yellow() { echo -e "\033[33m\033[01m$1\033[0m"; }
 
 # ==============================================================================
-# IP 优选与配置生成
+# IP Optimization & Config Generation
 # ==============================================================================
 run_ip_selection() {
     green "🚀 开始优选 WARP Endpoint IP..."
@@ -33,18 +33,11 @@ run_ip_selection() {
     if [ -f "result.csv" ]; then
         green "✅ 扫描完成，正在处理结果..."
         
-        # ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
-        # 新逻辑：
-        # 1. 过滤掉延迟为0或超时的IP (`($3+0) > 0`)
-        # 2. 按第3列(延迟)进行数字升序排序 (`sort -t, -k3,3n`)
-        # 3. 取出排序后最靠前的 N 个IP (`head -n "$BEST_IP_COUNT"`)
-        # 4. 格式化为 IP:Port
         awk -F, '($3+0) > 0 {print $0}' result.csv | \
         sort -t, -k3,3n | \
         head -n "$BEST_IP_COUNT" | \
         awk -F, '{print $1":"$2}' | \
         sed 's/[[:space:]]//g' > "$BEST_IP_FILE"
-        # ==================== ↑↑↑ 这里是核心修改 ↑↑↑ ====================
 
         if [ -s "$BEST_IP_FILE" ]; then
             green "✅ 已从有效IP中筛选出延迟最低的 $(wc -l < "$BEST_IP_FILE") 个IP。"
@@ -68,14 +61,17 @@ update_singbox_config() {
         fi
     fi
 
-    # 从优选列表中随机选择一个 IP:端口
     local random_endpoint=$(shuf -n 1 "$BEST_IP_FILE")
     local new_ip=$(echo "$random_endpoint" | cut -d: -f1)
     local new_port=$(echo "$random_endpoint" | cut -d: -f2)
 
+    # ==================== ↓↓↓ THE FIX IS HERE ↓↓↓ ====================
+    # Sanitize the port number to ensure it contains only digits.
+    new_port=$(echo "$new_port" | tr -dc '0-9')
+    # ==================== ↑↑↑ THE FIX IS HERE ↑↑↑ ====================
+
     green "✅ 已选择新的 Endpoint: ${new_ip}:${new_port}"
 
-    # 使用 jq 精确更新 WARP-OPTIMIZED 出站的 server 和 server_port
     jq --arg ip "$new_ip" --argjson port "$new_port" \
     '( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server ) |= $ip | ( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server_port ) |= $port' \
     "$CONFIG_TEMPLATE" > "$ACTIVE_CONFIG"
@@ -84,16 +80,16 @@ update_singbox_config() {
 }
 
 # ==============================================================================
-# 主执行逻辑 (这部分不变)
+# Main Execution Logic (This part remains unchanged)
 # ==============================================================================
 cd "$APP_DIR" || exit 1
 
-# --- 首次运行设置 ---
+# --- Initial Setup ---
 green "▶️ 服务初始化..."
 run_ip_selection
 update_singbox_config
 
-# --- 后台定时任务: 周期性 IP 优选 ---
+# --- Background Task: Periodic IP Optimization ---
 (
     while true; do
         sleep "$OPTIMIZE_INTERVAL"
@@ -108,7 +104,7 @@ update_singbox_config
     done
 ) &
 
-# --- 主服务循环: 运行并监控 sing-box ---
+# --- Main Service Loop: Run and monitor sing-box ---
 green "🚀 启动并监控 sing-box 服务..."
 while true; do
     /usr/local/bin/sing-box run -c "$ACTIVE_CONFIG" &
