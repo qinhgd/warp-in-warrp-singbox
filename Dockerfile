@@ -1,4 +1,4 @@
-# 最终版 Dockerfile: 集成 jq, zashboard UI, 和动态 IP 优选 (arm64)
+# 最终版 Dockerfile: 集成 jq, zashboard UI, 并从网络自动下载规则 (arm64)
 FROM alpine:3.20
 
 # 1. 安装基础依赖, 新增 jq 用于处理 JSON
@@ -19,7 +19,6 @@ RUN LATEST_URL=$(curl -sL "https://api.github.com/repos/SagerNet/sing-box/releas
     chmod +x /usr/local/bin/sing-box && \
     rm -rf /tmp/*
 
-# ==================== ↓↓↓ 这里是修改的部分 ↓↓↓ ====================
 # 3. 下载并固化 Clash API 的 Web UI (zashboard)
 RUN mkdir -p /opt/app/ui && \
     echo "Downloading zashboard Web UI..." && \
@@ -27,17 +26,23 @@ RUN mkdir -p /opt/app/ui && \
     unzip /tmp/zashboard.zip -d /opt/app/ui/ && \
     echo "UI download complete." && \
     rm -rf /tmp/zashboard.zip
-# ==================== ↑↑↑ 这里是修改的部分 ↑↑↑ ====================
 
-# 4. 拷贝所有项目文件
+# 4. 拷贝应用核心文件
 WORKDIR /opt/app
 COPY warp-arm64 /usr/local/bin/warp
 COPY entry.sh .
 COPY config.json.template .
 
-# 5. 拷贝自定义规则文件
-RUN mkdir -p /etc/sing-box/rules
-COPY rules/ /etc/sing-box/rules/
+# ==================== ↓↓↓ 这里是修改的部分 ↓↓↓ ====================
+# 5. 从网络下载并固化规则文件
+# 不再需要本地的 'rules' 文件夹，直接在构建时从网络获取
+RUN mkdir -p /etc/sing-box/rules && \
+    echo "Downloading sing-box rule files..." && \
+    # 使用 jsDelivr CDN 加速从 GitHub 下载，稳定性较好
+    curl -sLo /etc/sing-box/rules/geoip-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geoip-cn.srs" && \
+    curl -sLo /etc/sing-box/rules/geosite-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geosite-cn.srs" && \
+    echo "Rule files download complete."
+# ==================== ↑↑↑ 这里是修改的部分 ↑↑↑ ====================
 
 # 6. Final setup
 RUN chmod +x /usr/local/bin/warp && \
