@@ -4,8 +4,7 @@ set -e
 # ==============================================================================
 # Script Configuration (from Environment Variables)
 # ==============================================================================
-# --- IP Selection Config ---
-OPTIMIZE_INTERVAL="${OPTIMIZE_INTERVAL:-21600}" # 6 hours
+OPTIMIZE_INTERVAL="${OPTIMIZE_INTERVAL:-21600}"
 WARP_CONNECT_TIMEOUT="${WARP_CONNECT_TIMEOUT:-4}"
 BEST_IP_COUNT="${BEST_IP_COUNT:-20}"
 
@@ -33,11 +32,13 @@ run_ip_selection() {
     if [ -f "result.csv" ]; then
         green "✅ 扫描完成，正在处理结果..."
         
+        # --- THE FIX PART 1: Robust Data Cleaning ---
+        # Added 'sed' to remove spaces AND carriage returns (\r)
         awk -F, '($3+0) > 0 {print $0}' result.csv | \
         sort -t, -k3,3n | \
         head -n "$BEST_IP_COUNT" | \
         awk -F, '{print $1":"$2}' | \
-        sed 's/[[:space:]]//g' > "$BEST_IP_FILE"
+        sed -e 's/[[:space:]]//g' -e 's/\r//g' > "$BEST_IP_FILE"
 
         if [ -s "$BEST_IP_FILE" ]; then
             green "✅ 已从有效IP中筛选出延迟最低的 $(wc -l < "$BEST_IP_FILE") 个IP。"
@@ -65,16 +66,16 @@ update_singbox_config() {
     local new_ip=$(echo "$random_endpoint" | cut -d: -f1)
     local new_port=$(echo "$random_endpoint" | cut -d: -f2)
 
-    # ==================== ↓↓↓ THE FIX IS HERE ↓↓↓ ====================
-    # Sanitize the port number to ensure it contains only digits.
-    new_port=$(echo "$new_port" | tr -dc '0-9')
-    # ==================== ↑↑↑ THE FIX IS HERE ↑↑↑ ====================
-
     green "✅ 已选择新的 Endpoint: ${new_ip}:${new_port}"
 
-    jq --arg ip "$new_ip" --argjson port "$new_port" \
+    # --- THE FIX PART 2: Robust Error Handling ---
+    # Catch errors from jq instead of letting the script crash
+    if ! jq --arg ip "$new_ip" --argjson port "$new_port" \
     '( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server ) |= $ip | ( .outbounds[] | select(.tag == "WARP-OPTIMIZED") .server_port ) |= $port' \
-    "$CONFIG_TEMPLATE" > "$ACTIVE_CONFIG"
+    "$CONFIG_TEMPLATE" > "$ACTIVE_CONFIG"; then
+        red "❌ JQ 更新配置文件失败！请检查模板文件或脚本。服务将退出。"
+        exit 1
+    fi
     
     green "✅ sing-box 配置文件已成功更新到 $ACTIVE_CONFIG。"
 }
