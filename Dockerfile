@@ -1,29 +1,20 @@
-# 最终版 Dockerfile: 适配版本号参数，集成 jq, zashboard UI (arm64)
+# 最终版 Dockerfile: 使用 apk 安装 sing-box，最稳定可靠 (arm64)
 FROM alpine:3.20
 
-# 1. 安装基础依赖
+# ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
+# 1. 启用 testing 源，以便安装最新版的 sing-box
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
+
+# 2. 一次性更新并安装所有依赖
+# 直接通过 apk 安装 sing-box，无需手动下载、解压和移动
 RUN apk update && \
     apk add --no-cache \
-    bash \
-    curl \
-    ca-certificates \
-    unzip \
-    jq && \
-    rm -rf /var/cache/apk/*
-
-# ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
-# 声明一个构建参数，它的值将由 release.yml 在构建时传入
-ARG SINGBOX_VERSION
-
-# 2. 安装 sing-box (linux-arm64)
-# 根据传入的 SINGBOX_VERSION 版本号，自己拼接出标准的 GitHub Release 下载链接
-RUN echo "Downloading sing-box version: v${SINGBOX_VERSION}" && \
-    SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-arm64.tar.gz" && \
-    curl -sLo /tmp/sing-box.tar.gz "${SINGBOX_URL}" && \
-    tar -xzf /tmp/sing-box.tar.gz -C /tmp && \
-    mv /tmp/sing-box-*/sing-box /usr/local/bin/ && \
-    chmod +x /usr/local/bin/sing-box && \
-    rm -rf /tmp/*
+        bash \
+        curl \
+        ca-certificates \
+        unzip \
+        jq \
+        sing-box
 # ==================== ↑↑↑ 这里是核心修改 ↑↑↑ ====================
 
 # 3. 下载并固化 Clash API 的 Web UI (zashboard)
@@ -36,7 +27,10 @@ RUN mkdir -p /opt/app/ui && \
 
 # 4. 拷贝应用核心文件
 WORKDIR /opt/app
-COPY warp-arm64 /usr/local/bin/warp
+# 不再需要安装 warp 工具，因为 sing-box 的 wireguard 出站已经包含了 WARP 功能
+# 如果您仍需要 warp-cli 工具进行 IP 优选，请取消下面的注释
+# COPY warp-arm64 /usr/local/bin/warp
+# RUN chmod +x /usr/local/bin/warp
 COPY entry.sh .
 COPY config.json.template .
 
@@ -48,8 +42,7 @@ RUN mkdir -p /etc/sing-box/rules && \
     echo "Rule files download complete."
 
 # 6. Final setup
-RUN chmod +x /usr/local/bin/warp && \
-    chmod +x entry.sh
+RUN chmod +x entry.sh
 
 # 7. 创建用于存放最终配置的目录
 RUN mkdir -p /etc/sing-box
