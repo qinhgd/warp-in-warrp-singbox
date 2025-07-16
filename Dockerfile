@@ -1,7 +1,7 @@
-# 最终版 Dockerfile: 集成 jq, zashboard UI, 并从网络自动下载规则 (arm64)
+# 最终版 Dockerfile: 适配版本号参数，集成 jq, zashboard UI (arm64)
 FROM alpine:3.20
 
-# 1. 安装基础依赖, 新增 jq 用于处理 JSON
+# 1. 安装基础依赖
 RUN apk update && \
     apk add --no-cache \
     bash \
@@ -11,13 +11,20 @@ RUN apk update && \
     jq && \
     rm -rf /var/cache/apk/*
 
+# ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
+# 声明一个构建参数，它的值将由 release.yml 在构建时传入
+ARG SINGBOX_VERSION
+
 # 2. 安装 sing-box (linux-arm64)
-RUN LATEST_URL=$(curl -sL "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep "browser_download_url" | grep "linux-arm64" | cut -d '"' -f 4) && \
-    curl -sLo /tmp/sing-box.tar.gz "$LATEST_URL" && \
+# 根据传入的 SINGBOX_VERSION 版本号，自己拼接出标准的 GitHub Release 下载链接
+RUN echo "Downloading sing-box version: v${SINGBOX_VERSION}" && \
+    SINGBOX_URL="https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-arm64.tar.gz" && \
+    curl -sLo /tmp/sing-box.tar.gz "${SINGBOX_URL}" && \
     tar -xzf /tmp/sing-box.tar.gz -C /tmp && \
     mv /tmp/sing-box-*/sing-box /usr/local/bin/ && \
     chmod +x /usr/local/bin/sing-box && \
     rm -rf /tmp/*
+# ==================== ↑↑↑ 这里是核心修改 ↑↑↑ ====================
 
 # 3. 下载并固化 Clash API 的 Web UI (zashboard)
 RUN mkdir -p /opt/app/ui && \
@@ -33,16 +40,12 @@ COPY warp-arm64 /usr/local/bin/warp
 COPY entry.sh .
 COPY config.json.template .
 
-# ==================== ↓↓↓ 这里是修改的部分 ↓↓↓ ====================
 # 5. 从网络下载并固化规则文件
-# 不再需要本地的 'rules' 文件夹，直接在构建时从网络获取
 RUN mkdir -p /etc/sing-box/rules && \
     echo "Downloading sing-box rule files..." && \
-    # 使用 jsDelivr CDN 加速从 GitHub 下载，稳定性较好
     curl -sLo /etc/sing-box/rules/geoip-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geoip-cn.srs" && \
     curl -sLo /etc/sing-box/rules/geosite-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geosite-cn.srs" && \
     echo "Rule files download complete."
-# ==================== ↑↑↑ 这里是修改的部分 ↑↑↑ ====================
 
 # 6. Final setup
 RUN chmod +x /usr/local/bin/warp && \
