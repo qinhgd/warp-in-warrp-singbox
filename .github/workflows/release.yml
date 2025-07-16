@@ -1,73 +1,50 @@
-# .github/workflows/release.yml
+# 最终版 Dockerfile: 使用 apk 安装 sing-box，最稳定可靠 (arm64)
+FROM alpine:3.20
 
-name: Build, Push to GHCR & Upload to Release
+# ==================== ↓↓↓ 这里是核心修改 ↓↓↓ ====================
+# 1. 启用 testing 源，以便安装最新版的 sing-box
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 
-# 触发条件：当在 GitHub 仓库的 "Releases" 页面上发布一个新的 Release 时触发
-on:
-  release:
-    types: [published]
+# 2. 一次性更新并安装所有依赖
+# 直接通过 apk 安装 sing-box，无需手动下载、解压和移动
+RUN apk update && \
+    apk add --no-cache \
+        bash \
+        curl \
+        ca-certificates \
+        unzip \
+        jq \
+        sing-box
+# ==================== ↑↑↑ 这里是核心修改 ↑↑↑ ====================
 
-# 为工作流设置权限
-permissions:
-  contents: write      # 允许上传文件到 Release
-  packages: write      # 允许推送到 GitHub Container Registry (GHCR)
+# 3. 下载并固化 Clash API 的 Web UI (zashboard)
+RUN mkdir -p /opt/app/ui && \
+    echo "Downloading zashboard Web UI..." && \
+    curl -sL "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip" -o /tmp/zashboard.zip && \
+    unzip /tmp/zashboard.zip -d /opt/app/ui/ && \
+    echo "UI download complete." && \
+    rm -rf /tmp/zashboard.zip
 
-# 环境变量，方便统一管理
-env:
-  # 定义镜像的基础名称，会自动使用 "用户名/仓库名"
-  IMAGE_BASENAME: ghcr.io/${{ github.repository_owner }}/singbox-wgcf-proxy
+# 4. 拷贝应用核心文件
+WORKDIR /opt/app
+# 不再需要安装 warp 工具，因为 sing-box 的 wireguard 出站已经包含了 WARP 功能
+# 如果您仍需要 warp-cli 工具进行 IP 优选，请取消下面的注释
+# COPY warp-arm64 /usr/local/bin/warp
+# RUN chmod +x /usr/local/bin/warp
+COPY entry.sh .
+COPY config.json.template .
 
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 🧾 检出仓库代码
-        uses: actions/checkout@v4
+# 5. 从网络下载并固化规则文件
+RUN mkdir -p /etc/sing-box/rules && \
+    echo "Downloading sing-box rule files..." && \
+    curl -sLo /etc/sing-box/rules/geoip-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geoip-cn.srs" && \
+    curl -sLo /etc/sing-box/rules/geosite-cn.srs "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/sing-box/geosite-cn.srs" && \
+    echo "Rule files download complete."
 
-      - name: 🔧 设置 Docker Buildx
-        uses: docker/setup-buildx-action@v3
+# 6. Final setup
+RUN chmod +x entry.sh
 
-      - name: 🔑 登录到 GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+# 7. 创建用于存放最终配置的目录
+RUN mkdir -p /etc/sing-box
 
-      - name: 📦 准备版本号和镜像标签
-        id: prep
-        run: |
-          # 从 Release 标签 (如 v1.2.3) 中提取纯版本号 (1.2.3)
-          VERSION_NUM=${{ github.ref_name }}
-          VERSION_NUM=${VERSION_NUM#v}
-          
-          # 定义将要生成的 .tar 文件名
-          TAR_NAME="singbox-wgcf-proxy-arm64-${{ github.ref_name }}.tar"
-          
-          # 定义完整的镜像标签，例如：ghcr.io/user/repo:latest, ghcr.io/user/repo:v1.2.3
-          IMAGE_TAGS="${{ env.IMAGE_BASENAME }}:latest,${{ env.IMAGE_BASENAME }}:${{ github.ref_name }}"
-          
-          # 将变量输出，供后续步骤使用
-          echo "VERSION_NUM=${VERSION_NUM}" >> $GITHUB_ENV
-          echo "TAR_NAME=${TAR_NAME}" >> $GITHUB_ENV
-          echo "IMAGE_TAGS=${IMAGE_TAGS}" >> $GITHUB_ENV
-
-      - name: 🛠️ 构建、推送并打包镜像
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_TAGS }}
-          # 关键一步：将 Release 版本号作为构建参数传递给 Dockerfile
-          build-args: |
-            SINGBOX_VERSION=${{ env.VERSION_NUM }}
-          # 优化：同时将构建结果导出为 .tar 文件，避免二次构建
-          outputs: type=docker,dest=${{ env.TAR_NAME }}
-
-      - name: ⬆️ 上传打包文件到 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # 上传我们刚刚导出的 .tar 文件
-          files: ${{ env.TAR_NAME }}
+ENTRYPOINT ["/opt/app/entry.sh"]
