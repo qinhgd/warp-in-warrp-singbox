@@ -1,0 +1,88 @@
+# .github/workflows/release.yml
+
+name: Create Release and Publish Docker Image
+
+# 触发条件：当一个以 'v' 开头的 tag 被推送到仓库时 (例如 v1.0, v2.3.4)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 环境变量，方便统一管理镜像名称
+env:
+  # 镜像仓库和名称，会自动使用你的 "用户名/仓库名"
+  IMAGE_NAME: ${{ github.repository }}
+  # 最终导出的 tar 包文件名
+  IMAGE_TAR_FILE: singbox-proxy-arm64.tar
+
+jobs:
+  build-and-release:
+    # 运行在 GitHub 提供的最新版 Ubuntu 服务器上
+    runs-on: ubuntu-latest
+    # 需要赋予工作流写软件包和创建Release的权限
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      # 第一步：检出你的仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 第二步：登录到 GitHub Container Registry (GHCR)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 第三步：设置 QEMU，以便可以跨平台构建 (例如在 amd64 服务器上构建 arm64 镜像)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # 第四步：设置 Docker Buildx，这是一个现代化的 Docker 构建器
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 第五步：提取 Docker 镜像的元数据 (比如标签)
+      # 它会自动将 Git 的 tag (如 v1.0) 转换为 Docker 的 tag
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.IMAGE_NAME }}
+
+      # 第六步：构建 Docker 镜像并推送到 GHCR
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true # 重点：设为 true 来推送到远端仓库
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # 第七步：为了打包成 .tar 文件，需要重新构建一次并加载到本地
+      # 注意：同一个 build-push-action 无法同时推送和导出文件
+      - name: Build image for local save
+        id: build-for-save
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true # 重点：设为 true 将镜像加载到 Actions 的 Docker 守护进程中
+          tags: ${{ steps.meta.outputs.tags }}
+
+      # 第八步：将本地的 Docker 镜像保存为 .tar 文件
+      - name: Save Docker image to a tar file
+        run: docker save ${{ steps.build-for-save.outputs.imageid }} -o ${{ env.IMAGE_TAR_FILE }}
+
+      # 第九步：创建 GitHub Release 并上传 .tar 文件作为附件
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 使用触发工作流的 Git tag 作为 Release 的名称
+          tag_name: ${{ github.ref_name }}
+          # 将 .tar 文件上传为附件
+          files: ${{ env.IMAGE_TAR_FILE }}
